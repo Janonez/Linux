@@ -23,6 +23,66 @@ int add_to_up(int top)
   return sum;
 }
 
+#define TASK_NUM 10
+
+// 预设一批任务
+void sync_disk()
+{
+  printf("这是一个刷新数据的任务。\n");
+}
+
+void sync_log()
+{
+  printf("这是一个同步日志的任务。\n");
+}
+
+void net_send()
+{
+  printf("这是一个网络发送的任务。\n");
+}
+
+typedef void (*func_t)();
+func_t other_task[TASK_NUM] = {NULL};
+
+int LoadTask(func_t func)
+{
+  int i = 0;
+  for(;i<TASK_NUM;++i)
+  {
+    if(other_task[i] == NULL)
+      break;
+  }
+  if(i == TASK_NUM)
+    return -1;
+  else
+    other_task[i]=func;
+
+  return 0;
+}
+
+void InitTask()
+{
+  for(int i = 0;i<TASK_NUM;++i)
+  {
+    other_task[i] = NULL;
+  }
+  LoadTask(sync_disk);
+  LoadTask(sync_log);
+  LoadTask(net_send);
+}
+
+void RunTask()
+{
+  for(int i = 0;i < TASK_NUM;++i)
+  {
+    if(other_task[i] == NULL)
+    {
+      continue;
+    }
+    other_task[i]();
+  }
+
+}
 int main()
 {
   /*
@@ -49,7 +109,7 @@ int main()
   if( id == 0 )
   {
     //child
-    int cnt = 5;
+    int cnt = 50;
     while(cnt)
     {
       printf("我是子进程,我还活着呢，我还有%ds,pid:%d,ppid:%d\n",cnt--,getpid(),getppid());
@@ -58,6 +118,9 @@ int main()
     exit(23);
   }
   //走到这里一定是父进程
+  
+  InitTask();
+
   while(1)
   {
     int status = 0;
@@ -70,12 +133,22 @@ int main()
     }
     else if(ret_id == 0)
     {
+      RunTask();
       sleep(1);
       continue;
     }
-    else{
-
-      printf("我是父进程，等待子进程成功，pid:%d,ppid:%d,ret_id:%d,chile exit code:%d,chile exit signal:%d\n",getpid(),getppid(),ret_id,(status>>8)&0xFF,status & 0x7F);
+    else
+    {
+     // printf("我是父进程，等待子进程成功，pid:%d,ppid:%d,ret_id:%d,chile exit code:%d,chile exit signal:%d\n",getpid(),getppid(),ret_id,(status>>8)&0xFF,status & 0x7F);
+      if(WIFEXITED(status)) // 是否收到信号
+      {
+        printf("wait success, child exit code: %d\n", WEXITSTATUS(status));
+      }
+      else
+      {
+        printf("wait success, child exit signal: %d\n", status & 0x7F);
+      }
+      break;
     }
   }
 }
