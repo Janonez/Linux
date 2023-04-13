@@ -4,7 +4,7 @@
 #include <vector>
 #include <unistd.h>
 
-typedef void (*fun_t)();
+typedef void (*fun_t)();// 重定义函数指针 void (*)() --> func_t
 
 void PrintLog()
 {
@@ -31,6 +31,7 @@ class Task
 public:
     Task()
     {
+        // 加载任务
         funcs.push_back(PrintLog);
         funcs.push_back(InsertMySQL);
         funcs.push_back(NetRequest);
@@ -38,12 +39,12 @@ public:
 
     void Execute(int command)
     {
-        if(command >= 0 && command < funcs.size())
-            funcs[command]();
+        if(command >= 0 && command < funcs.size())// 判断command合理
+            funcs[command]();// 执行函数
     }
 
     ~Task()
     {}
 public:
-    std::vector<fun_t> funcs;
+    std::vector<fun_t> funcs;// 一个存放函数指针的容器
 };
