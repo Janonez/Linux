@@ -79,7 +79,6 @@ char* AttachShm(int shmid)
 void DetachShm(char *start)
 {
     // int shmdt(const void *shmaddr);
-
     int n = shmdt(start);
     assert(n != -1);
     (void)n;
