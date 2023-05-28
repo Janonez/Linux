@@ -81,7 +81,7 @@ using namespace std;
 //     return 0;
 // }
 
-__thread int g_val = 100;
+int g_val = 100;
 
 string hexAddr(pthread_t tid)
 {
@@ -99,9 +99,11 @@ void* threadRoutine(void* args)
     while(cnt)
     {
         //cout << name << " : " << cnt-- << " : " << hexAddr(pthread_self()) << " &cnt : "<< &cnt <<endl;
-        cout << name <<  " g_val : " << g_val++ << ", &g_val : " << &g_val << endl;
+        cout << name <<  " g_val : " << g_val++  << ", &g_val : " << &g_val << endl;
+        //cout << g_val++ << endl;
         sleep(1);
     }
+    return nullptr;
 }
 int main()
 {
@@ -162,5 +164,16 @@ int main()
 //         pthread_join(t[i],nullptr);
 //     }
 //     pthread_mutex_destroy(&mutex);
+//     return 0;
+// }
+
+// int main()
+// {
+//     int cnt = 10;
+//     while(cnt--)
+//     {
+//         cout << "hello world" << " : " << g_val++ << endl;
+
+//     }
 //     return 0;
 // }
