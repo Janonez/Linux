@@ -6,5 +6,7 @@ enum
     SOCKET_ERR,
     BIND_ERR,
     LISTEN_ERR,
-    CONNECT_ERR
+    CONNECT_ERR,
+    SETSID_ERR,
+    OPEN_ERR
 };

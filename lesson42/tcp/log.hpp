@@ -10,6 +10,9 @@
 #include <unistd.h>
 
 // 日志是有日志等级的
+
+const std::string filename = "log/tcpserver.log";
+
 enum
 {
     Debug = 0,
@@ -71,7 +74,14 @@ void logMessage(int level,const char* format, ...)
     va_end(p);
 
     // 打印
-    printf("%s%s\n",logLeft, logRight);
+    //printf("%s%s\n",logLeft, logRight);
 
     // 保存到文件中
+    FILE* fp = fopen(filename.c_str(), "a");
+    if(fp == nullptr)
+        return;
+    
+    fprintf(fp,"%s%s\n",logLeft, logRight);
+    fflush(fp);// 可写也可以不写
+    fclose(fp);
 }
