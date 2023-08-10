@@ -4,7 +4,6 @@
 #include <string>
 #include <functional>
 #include <unordered_map>
-#include <ctime>
 #include <assert.h>
 #include "Log.hpp"
 #include "Err.hpp"
@@ -12,23 +11,23 @@
 #include "Epoller.hpp"
 #include "Util.hpp"
 #include "Protocol.hpp"
-
 using namespace protocol_ns;
-const static int gport = 8888;
-const static int bsize = 1024;
-const static int linktimeout = 30;
+const static uint16_t gport = 8888;
+const static uint16_t bsize = 1024;
 
 class Connection;
 class EpollServer;
 
-using func_t = std::function<const Response(const protocol_ns::Request &)>;
+using func_t = std::function<void(Connection *, const protocol_ns::Request &)>;
 using callback_t = std::function<void(Connection *)>;
 
 class Connection
 {
 public:
     Connection(const int &fd, const std::string &clientip, const uint16_t &clientport)
-        : fd_(fd), clientip_(clientip), clientport_(clientport)
+        : fd_(fd)
+        , clientip_(clientip)
+        , clientport_(clientport)
     {
     }
     void Register(callback_t reciver, callback_t sender, callback_t excepter)
@@ -58,9 +57,7 @@ public:
     uint32_t events_;
 
     // 回指指针
-    EpollServer *R_;
-
-    time_t lasttime_;
+    EpollServer *R;
 };
 
 class EpollServer
@@ -88,7 +85,6 @@ public:
         while (true)
         {
             LoopOnce(timeout);
-            checklink();
         }
     } // 事件派发器
     void LoopOnce(int timeout)
@@ -137,11 +133,10 @@ public:
                            std::bind(&EpollServer::Excepter, this, std::placeholders::_1));
         }
         conn->events_ = events;
-        conn->R_ = this;
-        conn->lasttime_ = time(nullptr);
+        conn->R = this;
         connections_.insert(std::pair<int, Connection *>(fd, conn));
         // 2. 将fd添加到epoll中
-        bool r = epoller_.AddModEvent(fd, events, EPOLL_CTL_ADD);
+        bool r = epoller_.AddModEvent(fd, events,EPOLL_CTL_ADD);
         assert(r);
         (void)r;
 
@@ -188,43 +183,8 @@ public:
         logMessage(Debug, "Accepter done ...");
 
     } // 连接管理器
-
-    void HandlerReuest(Connection *conn)
+    void Reciver(Connection *conn)
     {
-        bool quit = false;
-        while (!quit)
-        {
-            // 根据协议进行数据分析
-            std::string requestStr;
-            // 1. 提取完整报文
-            int n = protocol_ns::ParsePackage(conn->inbuffer_, &requestStr);
-            if (n > 0)
-            {
-                // 2. 提取有效载荷
-                requestStr = protocol_ns::RemoveHeader(requestStr, n);
-                // 3. 进行反序列化
-                protocol_ns::Request req;
-                req.DeSerialize(requestStr);
-                // 4. 业务处理
-                Response resp = func_(req);
-                // 5. 序列化
-                std::string RespStr;
-                resp.Serialize(&RespStr);
-                // 6. 添加报头
-                RespStr = AddHeader(RespStr);
-                // 7. 进行返回
-                conn->outbuffer_ += RespStr;
-            }
-            else
-            {
-                quit = true;
-            }
-        }
-    }
-    bool ReciverHelper(Connection *conn)
-    {
-        bool ret = true;
-        conn->lasttime_ = time(nullptr);// 更新conn最近访问时间
         do
         {
             char buffer[bsize];
@@ -233,13 +193,22 @@ public:
             {
                 buffer[n] = 0;
                 conn->inbuffer_ += buffer;
+                // 根据协议进行数据分析
+                std::string requestStr;
+                int n = protocol_ns::ParsePackage(conn->inbuffer_, &requestStr);
+                if (n > 0)
+                {
+                    requestStr = protocol_ns::RemoveHeader(requestStr, n);
+                    protocol_ns::Request req;
+                    req.DeSerialize(requestStr);
+                    func_(conn, req);
+                }
 
                 // logMessage(Debug, "inbuffer: %s,[%d]", conn->inbuffer_.c_str(), conn->fd_);
             }
             else if (n == 0)
             {
                 conn->excepter_(conn);
-                ret = false;
                 break;
             }
             else
@@ -255,30 +224,14 @@ public:
                 else
                 {
                     conn->excepter_(conn);
-                    ret = false;
-
                     break;
                 }
             }
 
         } while (conn->events_ & EPOLLET);
-        return ret;
-    }
-    void Reciver(Connection *conn)
-    {
-        if(!ReciverHelper(conn))
-        {
-            return;
-        }
-        HandlerReuest(conn);
-        if (!conn->outbuffer_.empty())
-        {
-            conn->sender_(conn);
-        }
     }
     void Sender(Connection *conn)
     {
-        bool safe = true;
         do
         {
             ssize_t n = send(conn->fd_, conn->outbuffer_.c_str(), conn->outbuffer_.size(), 0);
@@ -287,12 +240,19 @@ public:
                 conn->outbuffer_.erase(0, n); // 清空数据
                 if (conn->outbuffer_.empty())
                 {
+                    // 关闭write
+                    EnableReadWrite(conn, true, false);
                     break;
+                }
+                else
+                {
+                    // 打开write
+                    EnableReadWrite(conn, true, true);
                 }
             }
             else
             {
-                if (errno == EAGAIN || errno == EWOULDBLOCK) // 缓冲区满
+                if (errno == EAGAIN || errno == EWOULDBLOCK)
                 {
                     break;
                 }
@@ -302,56 +262,19 @@ public:
                 }
                 else
                 {
-                    safe = false;
                     conn->excepter_(conn);
                     break;
                 }
             }
         } while (conn->events_ & EPOLLET);
-        if (!safe)
-        {
-            return;
-        }
-        if (!conn->outbuffer_.empty())
-        {
-            EnableReadWrite(conn, true, true);
-        }
-        else
-        {
-            EnableReadWrite(conn, true, false);
-        }
     }
     void Excepter(Connection *conn)
     {
-        // 1. 从epoll中移除fd
-        epoller_.DelEvent(conn->fd_);
-        // 2. 移除unordered_map KV关系
-        connections_.erase(conn->fd_);
-        // 3. 关闭fd
-        close(conn->fd_);
-        // 4. 释放conn对象
-        delete conn;
-        logMessage(Debug, "Excepter done ..., fd: %d, clientinfo[%s:%d]", conn->fd_, conn->clientip_.c_str(), conn->clientport_);
-
+        logMessage(Debug, "Excepter ..., fd: %d, clientinfo[%s:%d]", conn->fd_, conn->clientip_.c_str(), conn->clientport_);
     }
     bool ConnIsExists(int fd)
     {
         return connections_.find(fd) != connections_.end();
-    }
-    void checklink()
-    {
-        time_t cur = time(nullptr);
-        for(auto &connection : connections_)
-        {
-            if(connection.second->lasttime_ + linktimeout > cur)
-            {
-                continue;
-            }
-            else
-            {
-                Excepter(connection.second);
-            }
-        }
     }
     ~EpollServer()
     {
