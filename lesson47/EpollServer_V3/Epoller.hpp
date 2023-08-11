@@ -10,7 +10,7 @@
 
 static const int defalutepfd = -1;
 static const int gsize = 128;
-// tet
+// test
 
 class Epoller
 {
